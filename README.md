@@ -1,4 +1,4 @@
-# Terraform Jenkins Deployment using Terraform ( on AWS EC2)
+# Terraform Jenkins Deployment ( on AWS EC2)
 
 ---
 
