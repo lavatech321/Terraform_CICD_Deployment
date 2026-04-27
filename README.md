@@ -21,9 +21,8 @@ terraform init
 ```
 
 Login into Jenkins using username and password shown below:
-
-username: admin
-password: admin123
+* username: admin
+* password: admin123
 
 ---
 
