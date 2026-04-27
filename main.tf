@@ -1,12 +1,12 @@
 
 resource "aws_key_pair" "mykey" {
-    key_name = "terraform-ansible-key1"
+    key_name = "terraform-ansible-key2"
     #public_key = file("C:/Users/username/.ssh/id_rsa.pub")
     public_key = file("~/.ssh/id_rsa.pub")
 }
 
 resource "aws_security_group" "jenkins-allow" {
-    name = "allow-jenkins"
+    name = "allow-jenkins-ubuntu"
     description = "Allow only jenkins port"
     ingress {
         from_port = 8080
@@ -23,7 +23,7 @@ resource "aws_security_group" "jenkins-allow" {
 }
 
 resource "aws_security_group" "ssh-allow" {
-    name = "allow-ssh-ansible"
+    name = "allow-ssh-ansible-ubuntu"
     description = "Allow only ssh port"
     ingress {
         from_port = 22
@@ -39,17 +39,23 @@ resource "aws_security_group" "ssh-allow" {
     }
 }
 
-data "aws_ami" "amazon_linux" {
+data "aws_ami" "ubuntu_22" {
   most_recent = true
-  owners      = ["amazon"]
+  owners      = ["099720109477"] # Canonical (Ubuntu)
+
   filter {
     name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
   }
 }
 
 resource "aws_instance" "servers" {
-    ami = data.aws_ami.amazon_linux.id
+    ami = data.aws_ami.ubuntu_22.id
     instance_type = "m7i-flex.large"
     key_name = aws_key_pair.mykey.key_name
     root_block_device {
@@ -63,44 +69,40 @@ resource "aws_instance" "servers" {
   aws_security_group.jenkins-allow.id
 ]
 
-
     connection {
                 type     = "ssh"
-                user     = "ec2-user"
+                user     = "ubuntu"
                 private_key = file("~/.ssh/id_rsa")
                 host = aws_instance.servers.public_ip
         }
 	provisioner "file" {
     		source      = "configure-jenkins.sh"
-		destination = "/home/ec2-user/code.sh"
+		destination = "/home/ubuntu/code.sh"
   	}
 	provisioner "remote-exec" {
-  inline = [
-	"sudo yum update -y",
-	"sudo yum install git -y",
-	"sudo yum install java-17-amazon-corretto -y",
+inline = [
+	"sudo apt update -y",
+	"sudo apt install -y git",
 
-    # Install Jenkins
-    "sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo",
-    "sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key",
-    "sudo yum install jenkins -y",
-    #"sudo systemctl enable jenkins",
-
-    # Configure jenkins
-	"sed -i 's/\\r$//' /home/ec2-user/code.sh",
-    "sudo chmod +x /home/ec2-user/code.sh",
-    "bash /home/ec2-user/code.sh",
-    "bash /home/ec2-user/code.sh",
-
-  ]
+	# Install Java (required for Jenkins)
+	"sudo apt install -y openjdk-21-jdk",
+	"wget https://pkg.jenkins.io/debian-stable/binary/jenkins_2.462.3_all.deb",
+	"sudo dpkg -i jenkins_2.462.3_all.deb",
+	"sudo apt --fix-broken install -y",
+	"sudo systemctl start jenkins",
+	"sudo systemctl enable jenkins",
+]
 }
 }
 
 output "EC2-Instance-access-details" {
-	value = "ssh -i ~/.ssh/id_rsa ec2-user@${aws_instance.servers.public_ip} \n"
+	value = "ssh -i ~/.ssh/id_rsa ubuntu@${aws_instance.servers.public_ip} \n"
 }
 
 output "Jenkins-UI" {
 	value = "http://${aws_instance.servers.public_ip}:8080 \n"
+}
+output "Jenkins-Credentials" {
+	value = "Username: admin \n Password: admin123"
 }
 

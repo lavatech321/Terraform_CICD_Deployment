@@ -1,81 +1,79 @@
 #!/bin/bash
-
 set -e
 
 echo "===== STOP JENKINS ====="
 sudo systemctl stop jenkins || true
 
 echo "===== DISABLE SETUP WIZARD ====="
-echo 'JENKINS_JAVA_OPTIONS="-Djenkins.install.runSetupWizard=false"' | sudo tee /etc/sysconfig/jenkins
+sudo sed -i '/JENKINS_JAVA_OPTIONS/d' /etc/default/jenkins 2>/dev/null || true
+echo 'JENKINS_JAVA_OPTIONS="-Djenkins.install.runSetupWizard=false"' | \
+sudo tee -a /etc/default/jenkins >/dev/null
 
 echo "===== CLEAN OLD SETUP ====="
-sudo rm -rf /var/lib/jenkins/secrets/initialAdminPassword
+sudo rm -f /var/lib/jenkins/secrets/initialAdminPassword
 sudo rm -rf /var/lib/jenkins/users/*
 
-echo "===== CLEAN PLUGINS (IMPORTANT) ====="
+echo "===== CLEAN OLD/BROKEN PLUGINS ====="
 sudo rm -rf /var/lib/jenkins/plugins/*
-sudo rm -rf /var/lib/jenkins/plugins/*.jpi
-sudo rm -rf /var/lib/jenkins/plugins/*.hpi
-sudo rm -rf /var/lib/jenkins/plugins/*.lock
 
-echo "===== CREATE GROOVY INIT ====="
+echo "===== CREATE GROOVY INIT USER ====="
 sudo mkdir -p /var/lib/jenkins/init.groovy.d
 
-cat <<EOF | sudo tee /var/lib/jenkins/init.groovy.d/create-user.groovy
-#!groovy
+cat <<'EOF' | sudo tee /var/lib/jenkins/init.groovy.d/create-user.groovy >/dev/null
 import jenkins.model.*
 import hudson.security.*
 
-def instance = Jenkins.getInstance()
+def instance = Jenkins.instanceOrNull
 
-def hudsonRealm = new HudsonPrivateSecurityRealm(false)
-hudsonRealm.createAccount("admin", "admin123")
-instance.setSecurityRealm(hudsonRealm)
+if (instance != null) {
 
-def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
-strategy.setAllowAnonymousRead(false)
-instance.setAuthorizationStrategy(strategy)
+  def realm = new HudsonPrivateSecurityRealm(false)
+  realm.createAccount("admin","admin123")
+  instance.setSecurityRealm(realm)
 
-instance.save()
+  def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+  strategy.setAllowAnonymousRead(false)
+  instance.setAuthorizationStrategy(strategy)
+
+  instance.save()
+}
 EOF
 
+echo "===== MARK SETUP COMPLETE ====="
+echo "2.0" | sudo tee /var/lib/jenkins/jenkins.install.UpgradeWizard.state >/dev/null
+echo "2.0" | sudo tee /var/lib/jenkins/jenkins.install.InstallUtil.lastExecVersion >/dev/null
+
 echo "===== DOWNLOAD PLUGIN MANAGER ====="
-sudo wget -q https://github.com/jenkinsci/plugin-installation-manager-tool/releases/download/2.13.0/jenkins-plugin-manager-2.13.0.jar -O /tmp/plugin-manager.jar
+sudo wget -q \
+https://github.com/jenkinsci/plugin-installation-manager-tool/releases/download/2.13.0/jenkins-plugin-manager-2.13.0.jar \
+-O /tmp/plugin-manager.jar
 
-
-# Disable wizard
-echo 'JENKINS_JAVA_OPTIONS="-Djenkins.install.runSetupWizard=false"' | sudo tee -a /etc/sysconfig/jenkins
-
-# Mark setup complete
-echo "2.0" | sudo tee /var/lib/jenkins/jenkins.install.UpgradeWizard.state
-echo "2.0" | sudo tee /var/lib/jenkins/jenkins.install.InstallUtil.lastExecVersion
-
-# Reload systemd
-sudo systemctl daemon-reexec
+echo "===== RELOAD SYSTEMD ====="
 sudo systemctl daemon-reload
 
-# Start Jenkins ONCE
+echo "===== START JENKINS ====="
 sudo systemctl start jenkins
 
-# WAIT until Jenkins fully up (CRITICAL)
+echo "Waiting for Jenkins to initialize..."
 sleep 30
 
-# Now install plugins
+echo "===== INSTALL PLUGINS ====="
 sudo java -jar /tmp/plugin-manager.jar \
   --war /usr/share/java/jenkins.war \
   --plugin-download-directory /var/lib/jenkins/plugins \
   --plugins \
     workflow-aggregator \
     git \
-    docker-workflow \
     credentials-binding \
-  --latest true
+  --latest false
 
-# Fix permissions
+echo "===== FIX PERMISSIONS ====="
 sudo chown -R jenkins:jenkins /var/lib/jenkins
 
-# Restart Jenkins
+echo "===== RESTART JENKINS ====="
 sudo systemctl restart jenkins
+
+sleep 20
 
 echo "===== VERIFY ====="
 if sudo journalctl -u jenkins -n 50 | grep -Ei "failed|error"; then
@@ -83,5 +81,9 @@ if sudo journalctl -u jenkins -n 50 | grep -Ei "failed|error"; then
   exit 1
 else
   echo "✅ Jenkins setup successful"
+  echo "Login: http://<server>:8080"
+  echo "Username: admin"
+  echo "Password: admin123"
 fi
+
 
