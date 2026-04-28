@@ -80,19 +80,17 @@ resource "aws_instance" "servers" {
 		destination = "/home/ubuntu/code.sh"
   	}
 	provisioner "remote-exec" {
-inline = [
-	"sudo apt update -y",
-	"sudo apt install -y git",
-
-	# Install Java (required for Jenkins)
-	"sudo apt install -y openjdk-21-jdk",
-	"wget https://pkg.jenkins.io/debian-stable/binary/jenkins_2.462.3_all.deb",
-	"sudo dpkg -i jenkins_2.462.3_all.deb",
-	"sudo apt --fix-broken install -y",
-	"sudo systemctl start jenkins",
-	"sudo systemctl enable jenkins",
-]
-}
+	  inline = [
+	    "sudo apt update -y",
+	    "sudo apt install -y ca-certificates curl gnupg git openjdk-21-jdk wget",
+	    "wget https://pkg.jenkins.io/debian-stable/binary/jenkins_2.555.1_all.deb -O /tmp/jenkins.deb",
+	    "sudo apt install -y /tmp/jenkins.deb",
+	    "sudo systemctl enable jenkins",
+	    "sudo systemctl start jenkins",
+	    "chmod +x /home/ubuntu/code.sh",
+	    "sudo bash /home/ubuntu/code.sh"
+  	]
+	}
 }
 
 output "EC2-Instance-access-details" {
@@ -103,6 +101,6 @@ output "Jenkins-UI" {
 	value = "http://${aws_instance.servers.public_ip}:8080 \n"
 }
 output "Jenkins-Credentials" {
-	value = "Username: admin \n Password: admin123"
+	value =  "Username: admin / Password: admin123"
 }
 

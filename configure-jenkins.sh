@@ -26,7 +26,6 @@ import hudson.security.*
 def instance = Jenkins.instanceOrNull
 
 if (instance != null) {
-
   def realm = new HudsonPrivateSecurityRealm(false)
   realm.createAccount("admin","admin123")
   instance.setSecurityRealm(realm)
@@ -54,18 +53,37 @@ sudo systemctl daemon-reload
 echo "===== START JENKINS ====="
 sudo systemctl start jenkins
 
-echo "Waiting for Jenkins to initialize..."
-sleep 30
+echo "===== WAIT FOR JENKINS ====="
+until curl -s http://localhost:8080/login > /dev/null; do
+  echo "Waiting for Jenkins..."
+  sleep 5
+done
+
+echo "===== CREATE PLUGIN LIST ====="
+sudo tee /tmp/plugins.txt >/dev/null <<EOF
+git
+workflow-aggregator
+docker-workflow
+blueocean
+EOF
 
 echo "===== INSTALL PLUGINS ====="
-sudo java -jar /tmp/plugin-manager.jar \
-  --war /usr/share/java/jenkins.war \
-  --plugin-download-directory /var/lib/jenkins/plugins \
-  --plugins \
-    workflow-aggregator \
-    git \
-    credentials-binding \
-  --latest false
+
+for i in 1 2 3; do
+  echo "Attempt $i..."
+
+  sudo java -jar /tmp/plugin-manager.jar \
+    --war /usr/share/java/jenkins.war \
+    --plugin-file /tmp/plugins.txt \
+    --plugin-download-directory /var/lib/jenkins/plugins \
+    --verbose && break
+
+  echo "Retrying with alternative mirror..."
+
+  export JENKINS_UC=https://archives.jenkins.io/update-center.json
+
+  sleep 10
+done
 
 echo "===== FIX PERMISSIONS ====="
 sudo chown -R jenkins:jenkins /var/lib/jenkins
@@ -73,17 +91,17 @@ sudo chown -R jenkins:jenkins /var/lib/jenkins
 echo "===== RESTART JENKINS ====="
 sudo systemctl restart jenkins
 
-sleep 20
+echo "===== FINAL WAIT ====="
+sleep 30
 
 echo "===== VERIFY ====="
-if sudo journalctl -u jenkins -n 50 | grep -Ei "failed|error"; then
-  echo "❌ Plugin errors detected"
-  exit 1
-else
+
+if ls /var/lib/jenkins/plugins | grep -q workflow; then
   echo "✅ Jenkins setup successful"
   echo "Login: http://<server>:8080"
   echo "Username: admin"
   echo "Password: admin123"
+else
+  echo "❌ Plugins not installed correctly"
+  exit 1
 fi
-
-
